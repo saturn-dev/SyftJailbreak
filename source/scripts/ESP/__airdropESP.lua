@@ -23,8 +23,7 @@ M.alertEnabled = false
 local BOX_COLOR  = Color3.fromRGB(243, 139, 168)
 local NAME_COLOR = Color3.fromRGB(255, 255, 255)
 
--- ZIndex sits ABOVE the menu (cards use 10-16) so the two never z-fight.
--- That z-fight was the flicker-when-GUI-open bug.
+-- ZIndex above the menu (cards use 10-16) so they never z-fight (flicker fix).
 local Z_FILL = 100
 local Z_BOX  = 101
 local Z_TEXT = 102
@@ -32,9 +31,17 @@ local Z_TEXT = 102
 local FONT = Drawing.Fonts.System
 pcall(function() FONT = Drawing.Fonts.SystemBold end)
 
--- pool[model] = { fill, box, name, dist, part, miss }
-local pool = {}
-local seen = {}   -- [model] = true  (alert de-dup, one per airdrop)
+-- Keyed by a STABLE string id (instance wrappers are not stable across calls
+-- in Matcha, so we cannot use the instance itself as a table key).
+local pool = {}   -- [id] = { fill, box, name, dist, model, part, miss }
+local seen = {}   -- [id] = true  (alert de-dup, exactly one per airdrop)
+
+-- ---------- stable identity ----------
+local function keyOf(inst)
+    local ok, addr = pcall(function() return inst.Address end)
+    if ok and addr then return tostring(addr) end
+    return tostring(inst)
+end
 
 -- ---------- drawing helpers ----------
 local function makeSet()
@@ -72,7 +79,7 @@ local function makeSet()
     dist.Visible = false
     dist.ZIndex = Z_TEXT
 
-    return { fill = fill, box = box, name = name, dist = dist, part = nil, miss = 0 }
+    return { fill = fill, box = box, name = name, dist = dist, model = nil, part = nil, miss = 0 }
 end
 
 local function hideSet(set)
@@ -96,7 +103,7 @@ local function hideAll()
 end
 
 local function clearAll()
-    for m, set in pairs(pool) do removeSet(set); pool[m] = nil end
+    for id, set in pairs(pool) do removeSet(set); pool[id] = nil end
 end
 
 local function applyColor(set, c)
@@ -111,32 +118,40 @@ local function isModel(obj)
     return ok and r == true
 end
 
--- A real airdrop: a Workspace model named "Drop", with NO Humanoid (excludes
--- players) and the crate signature (a "Walls" or "Post" part). This stops the
--- ESP from latching onto players / dropped cash.
-local function isAirdrop(c)
-    if not c or c.Name ~= "Drop" or not isModel(c) then return false end
-    local okH, hum = pcall(function() return c:FindFirstChildOfClass("Humanoid") end)
-    if okH and hum then return false end
-    local okW, sig = pcall(function()
-        return c:FindFirstChild("Walls", true) or c:FindFirstChild("Post", true)
-    end)
-    return okW and sig ~= nil
+local function partValid(p)
+    if not p then return false end
+    local ok, par = pcall(function() return p.Parent end)
+    return ok and par ~= nil
 end
 
--- anchor on the crate body for a stable, centered box
+-- airdrop = a Workspace model named "Drop" with no Humanoid (excludes players)
+local function isAirdrop(c)
+    if not c then return false end
+    local okN, nm = pcall(function() return c.Name end)
+    if not okN or nm ~= "Drop" then return false end
+    if not isModel(c) then return false end
+    local okH, hum = pcall(function() return c:FindFirstChildOfClass("Humanoid") end)
+    if okH and hum then return false end
+    return true
+end
+
+-- anchor part: PrimaryPart, then a "Walls" BasePart, then any BasePart (descendants)
 local function pickPart(model)
-    local walls = model:FindFirstChild("Walls", true)
-    if walls then
-        local okp, isp = pcall(function() return walls:IsA("BasePart") end)
-        if okp and isp == true then return walls end
-        local bp = walls:FindFirstChildWhichIsA("BasePart")
-        if bp then return bp end
-    end
     local ok, pp = pcall(function() return model.PrimaryPart end)
     if ok and pp then return pp end
-    local bp2 = model:FindFirstChildWhichIsA("BasePart")
-    if bp2 then return bp2 end
+    local okD, descs = pcall(function() return model:GetDescendants() end)
+    if okD and descs then
+        local fallback
+        for _, d in ipairs(descs) do
+            local okp, isp = pcall(function() return d:IsA("BasePart") end)
+            if okp and isp == true then
+                local okn, dn = pcall(function() return d.Name end)
+                if okn and dn == "Walls" then return d end
+                if not fallback then fallback = d end
+            end
+        end
+        if fallback then return fallback end
+    end
     return nil
 end
 
@@ -153,43 +168,47 @@ local function getLocalPos()
 end
 
 -- ---------- collect airdrops ----------
-local function collectDrops(out)
-    for _, c in ipairs(Workspace:GetChildren()) do
-        if isAirdrop(c) then out[c] = true end
+local function collectDrops()
+    local out = {}
+    local ok, children = pcall(function() return Workspace:GetChildren() end)
+    if ok and children then
+        for _, c in ipairs(children) do
+            if isAirdrop(c) then out[#out + 1] = c end
+        end
     end
     return out
 end
 
 -- ---------- slow scan: membership, alerts, cache anchor part ----------
 local function scan()
+    local drops = collectDrops()
     local current = {}
-    collectDrops(current)
-
-    for m, _ in pairs(current) do
-        if not seen[m] then
-            seen[m] = true
+    for _, m in ipairs(drops) do
+        local id = keyOf(m)
+        current[id] = true
+        if not seen[id] then
+            seen[id] = true
             if M.alertEnabled and notify then
                 pcall(notify, "Airdrop spawned!", "Airdrop", 3)
             end
         end
-        local set = pool[m]
-        if not set then set = makeSet(); applyColor(set, BOX_COLOR); pool[m] = set end
-        if not set.part or not set.part.Parent then set.part = pickPart(m) end
+        local set = pool[id]
+        if not set then set = makeSet(); applyColor(set, BOX_COLOR); pool[id] = set end
+        set.model = m
+        if not partValid(set.part) then set.part = pickPart(m) end
     end
 
-    for m, _ in pairs(seen) do
-        if not current[m] then seen[m] = nil end
+    for id, _ in pairs(seen) do
+        if not current[id] then seen[id] = nil end
     end
-    for m, set in pairs(pool) do
-        if not current[m] then removeSet(set); pool[m] = nil end
+    for id, set in pairs(pool) do
+        if not current[id] then removeSet(set); pool[id] = nil end
     end
 end
 
 -- seed silently so existing airdrops don't spam the alert on enable
 do
-    local current = {}
-    collectDrops(current)
-    for m, _ in pairs(current) do seen[m] = true end
+    for _, m in ipairs(collectDrops()) do seen[keyOf(m)] = true end
 end
 
 task.spawn(function()
@@ -207,10 +226,10 @@ renderConn = RS.RenderStepped:Connect(function()
         return
     end
     local lpos = getLocalPos()
-    for m, set in pairs(pool) do
+    for _, set in pairs(pool) do
         local part = set.part
         local pos
-        if part and part.Parent then
+        if partValid(part) then
             local ok, p = pcall(function() return part.Position end)
             if ok and p then pos = p end
         else
@@ -230,12 +249,11 @@ renderConn = RS.RenderStepped:Connect(function()
                     set.dist.Text = fmt("[%d studs]", floor(d))
                 end
                 local half = floor(sz / 2)
-                local px, py = sx - half, sy - half
                 local size = Vector2_new(sz, sz)
-                local posv = Vector2_new(px, py)
+                local posv = Vector2_new(sx - half, sy - half)
                 set.fill.Size = size; set.fill.Position = posv; set.fill.Visible = true
                 set.box.Size = size; set.box.Position = posv; set.box.Visible = true
-                set.name.Position = Vector2_new(sx, py - 15); set.name.Visible = true
+                set.name.Position = Vector2_new(sx, sy - half - 15); set.name.Visible = true
                 if lpos then
                     set.dist.Position = Vector2_new(sx, sy + half + 3); set.dist.Visible = true
                 else
