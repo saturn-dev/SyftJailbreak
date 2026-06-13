@@ -246,53 +246,6 @@ function SyftLib:Open()
                 mk("Square",{Filled=true,Color=C.brd,Size=Vector2.new(colW2,1),Position=Vector2.new(cx,cy+27),ZIndex=12,Visible=true})
                 mk("Square",{Filled=true,Color=C.mauve,Size=Vector2.new(3,14),Position=Vector2.new(cx+1,cy+7),Corner=2,ZIndex=13,Visible=true})
                 mk("Text",{Text=sec.title,Size=FSS,Color=C.text,Font=FONTB,Position=Vector2.new(cx+PAD,cy+7),ZIndex=13,Visible=true})
-                -- perimeter glow: 24 short segments following rounded rect border
-                do
-                    local scx=cx; local scy=cy; local scw=colW2; local sch=ch; local R=8
-                    local N=24
-                    local gl={}
-                    for _=1,N do local l=mk("Line",{}); l.Thickness=1.5; l.ZIndex=9; l.Visible=false; gl[#gl+1]=l end
-                    local sin=math.sin; local cos=math.cos; local pi=math.pi
-                    local topLen=scw-2*R; local sideLen=sch-2*R; local cArc=0.5*pi*R
-                    local perim=2*(topLen+sideLen)+4*cArc
-                    local function pt(t)
-                        local d=(t%1)*perim
-                        if d<topLen then return scx+R+d,scy end; d=d-topLen
-                        if d<cArc then local a=-pi/2+d/R; return scx+scw-R+cos(a)*R,scy+R+sin(a)*R end; d=d-cArc
-                        if d<sideLen then return scx+scw,scy+R+d end; d=d-sideLen
-                        if d<cArc then local a=d/R; return scx+scw-R+cos(a)*R,scy+sch-R+sin(a)*R end; d=d-cArc
-                        if d<topLen then return scx+scw-R-d,scy+sch end; d=d-topLen
-                        if d<cArc then local a=pi/2+d/R; return scx+R+cos(a)*R,scy+sch-R+sin(a)*R end; d=d-cArc
-                        if d<sideLen then return scx,scy+sch-R-d end; d=d-sideLen
-                        local a=pi+d/R; return scx+R+cos(a)*R,scy+R+sin(a)*R
-                    end
-                    sloop(function()
-                        if not mOver(scx,scy,scw,sch) then
-                            for _,l in ipairs(gl) do l.Visible=false end; return
-                        end
-                        local mx2=Mouse.X; local my2=Mouse.Y
-                        local dL=math.abs(mx2-scx); local dR=math.abs(mx2-(scx+scw))
-                        local dT=math.abs(my2-scy); local dB=math.abs(my2-(scy+sch))
-                        local dist=math.min(dL,dR,dT,dB)
-                        local maxD=70
-                        if dist>maxD then for _,l in ipairs(gl) do l.Visible=false end; return end
-                        local baseA=(1-dist/maxD)*0.65
-                        local focusT
-                        if dist==dT then focusT=(math.clamp(mx2,scx+R,scx+scw-R)-scx-R)/perim
-                        elseif dist==dR then focusT=(topLen+cArc+math.clamp(my2,scy+R,scy+sch-R)-scy-R)/perim
-                        elseif dist==dB then focusT=(topLen+cArc+sideLen+cArc+(scx+scw-R-math.clamp(mx2,scx+R,scx+scw-R)))/perim
-                        else focusT=(topLen+cArc+sideLen+cArc+topLen+cArc+scy+sch-R-math.clamp(my2,scy+R,scy+sch-R))/perim end
-                        local spread=0.3
-                        for i=1,N do
-                            local t1=focusT+(-spread/2+(i-1)*(spread/N))
-                            local t2=t1+spread/N
-                            local x1,y1=pt(t1); local x2,y2=pt(t2)
-                            local frac=1-math.abs((i-0.5)/N-0.5)*2
-                            gl[i].From=Vector2.new(x1,y1); gl[i].To=Vector2.new(x2,y2)
-                            gl[i].Color=C.mauve; gl[i].Transparency=baseA*frac; gl[i].Visible=true
-                        end
-                    end)
-                end
                 local iy=cy+34
 
                 for _,it in ipairs(sec.items) do

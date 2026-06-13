@@ -20,20 +20,21 @@ M._loaded = true
 M.enabled = false
 M.alertEnabled = false
 
-local BOX_COLOR  = Color3.fromRGB(243, 139, 168)
+local BOX_COLOR  = Color3.fromRGB(243, 139, 168)  -- fallback when no Post part
 local NAME_COLOR = Color3.fromRGB(255, 255, 255)
+local NAMEBG_COLOR = Color3.fromRGB(12, 12, 18)
 
 -- ZIndex above the menu (cards use 10-16) so they never z-fight (flicker fix).
-local Z_FILL = 100
-local Z_BOX  = 101
-local Z_TEXT = 102
+local Z_FILL  = 100
+local Z_BOX   = 101
+local Z_NAMEBG = 102
+local Z_TEXT  = 103
 
 local FONT = Drawing.Fonts.System
 pcall(function() FONT = Drawing.Fonts.SystemBold end)
 
--- Keyed by a STABLE string id (instance wrappers are not stable across calls
--- in Matcha, so we cannot use the instance itself as a table key).
-local pool = {}   -- [id] = { fill, box, name, dist, model, part, miss }
+-- Keyed by a STABLE string id (instance wrappers aren't stable across calls).
+local pool = {}   -- [id] = { fill, box, nameBg, name, dist, model, part, color, miss }
 local seen = {}   -- [id] = true  (alert de-dup, exactly one per airdrop)
 
 -- ---------- stable identity ----------
@@ -48,7 +49,7 @@ local function makeSet()
     local fill = Drawing_new("Square")
     fill.Filled = true
     fill.Color = BOX_COLOR
-    fill.Transparency = 0.4
+    fill.Transparency = 0.35
     fill.Visible = false
     fill.ZIndex = Z_FILL
 
@@ -60,9 +61,16 @@ local function makeSet()
     box.Visible = false
     box.ZIndex = Z_BOX
 
+    local nameBg = Drawing_new("Square")
+    nameBg.Filled = true
+    nameBg.Color = NAMEBG_COLOR
+    nameBg.Transparency = 0.55
+    nameBg.Visible = false
+    nameBg.ZIndex = Z_NAMEBG
+
     local name = Drawing_new("Text")
     name.Font = FONT
-    name.Size = 13
+    name.Size = 14
     name.Center = true
     name.Outline = true
     name.Color = NAME_COLOR
@@ -79,13 +87,15 @@ local function makeSet()
     dist.Visible = false
     dist.ZIndex = Z_TEXT
 
-    return { fill = fill, box = box, name = name, dist = dist, model = nil, part = nil, miss = 0 }
+    return { fill = fill, box = box, nameBg = nameBg, name = name, dist = dist,
+             model = nil, part = nil, color = BOX_COLOR, miss = 0 }
 end
 
 local function hideSet(set)
     if not set then return end
     set.fill.Visible = false
     set.box.Visible = false
+    set.nameBg.Visible = false
     set.name.Visible = false
     set.dist.Visible = false
 end
@@ -94,6 +104,7 @@ local function removeSet(set)
     if not set then return end
     pcall(function() set.fill:Remove() end)
     pcall(function() set.box:Remove() end)
+    pcall(function() set.nameBg:Remove() end)
     pcall(function() set.name:Remove() end)
     pcall(function() set.dist:Remove() end)
 end
@@ -110,6 +121,7 @@ local function applyColor(set, c)
     set.fill.Color = c
     set.box.Color = c
     set.dist.Color = c
+    set.color = c
 end
 
 -- ---------- helpers ----------
@@ -135,24 +147,30 @@ local function isAirdrop(c)
     return true
 end
 
--- anchor part: PrimaryPart, then a "Walls" BasePart, then any BasePart (descendants)
-local function pickPart(model)
-    local ok, pp = pcall(function() return model.PrimaryPart end)
-    if ok and pp then return pp end
+-- ONE descendant pass that returns both the anchor part and the Post color.
+local function resolveModel(model)
+    local anchor, fallback, postColor
+    local okP, pp = pcall(function() return model.PrimaryPart end)
+    if okP and pp then anchor = pp end
+
     local okD, descs = pcall(function() return model:GetDescendants() end)
     if okD and descs then
-        local fallback
         for _, d in ipairs(descs) do
-            local okp, isp = pcall(function() return d:IsA("BasePart") end)
-            if okp and isp == true then
+            local okIsP, isp = pcall(function() return d:IsA("BasePart") end)
+            if okIsP and isp == true then
                 local okn, dn = pcall(function() return d.Name end)
-                if okn and dn == "Walls" then return d end
+                local nm = okn and dn or ""
                 if not fallback then fallback = d end
+                if nm == "Walls" and not anchor then anchor = d end
+                if nm == "Post" and not postColor then
+                    local okc, col = pcall(function() return d.Color end)
+                    if okc and col and typeof(col) == "Color3" then postColor = col end
+                end
             end
         end
-        if fallback then return fallback end
     end
-    return nil
+    if not anchor then anchor = fallback end
+    return anchor, postColor
 end
 
 local function getLocalPos()
@@ -179,7 +197,7 @@ local function collectDrops()
     return out
 end
 
--- ---------- slow scan: membership, alerts, cache anchor part ----------
+-- ---------- slow scan: membership, alerts, cache part + Post color ----------
 local function scan()
     local drops = collectDrops()
     local current = {}
@@ -193,9 +211,11 @@ local function scan()
             end
         end
         local set = pool[id]
-        if not set then set = makeSet(); applyColor(set, BOX_COLOR); pool[id] = set end
+        if not set then set = makeSet(); pool[id] = set end
         set.model = m
-        if not partValid(set.part) then set.part = pickPart(m) end
+        local part, postColor = resolveModel(m)
+        if not partValid(set.part) then set.part = part end
+        applyColor(set, postColor or BOX_COLOR)
     end
 
     for id, _ in pairs(seen) do
@@ -246,16 +266,26 @@ renderConn = RS.RenderStepped:Connect(function()
                 if lpos then
                     local d = (lpos - pos).Magnitude
                     sz = floor(clamp(2600 / (d > 1 and d or 1), 18, 70) + 0.5)
-                    set.dist.Text = fmt("[%d studs]", floor(d))
+                    set.dist.Text = fmt("%d studs", floor(d))
                 end
                 local half = floor(sz / 2)
                 local size = Vector2_new(sz, sz)
                 local posv = Vector2_new(sx - half, sy - half)
                 set.fill.Size = size; set.fill.Position = posv; set.fill.Visible = true
                 set.box.Size = size; set.box.Position = posv; set.box.Visible = true
-                set.name.Position = Vector2_new(sx, sy - half - 15); set.name.Visible = true
+
+                -- name pill above the box
+                local nw = floor(#set.name.Text * 8 + 14)
+                local ny = sy - half - 21
+                set.nameBg.Size = Vector2_new(nw, 17)
+                set.nameBg.Position = Vector2_new(sx - floor(nw / 2), ny)
+                set.nameBg.Visible = true
+                set.name.Position = Vector2_new(sx, ny + 8)
+                set.name.Visible = true
+
                 if lpos then
-                    set.dist.Position = Vector2_new(sx, sy + half + 3); set.dist.Visible = true
+                    set.dist.Position = Vector2_new(sx, sy + half + 4)
+                    set.dist.Visible = true
                 else
                     set.dist.Visible = false
                 end
@@ -281,10 +311,10 @@ function M.SetAlertEnabled(v)
     M.alertEnabled = v == true
 end
 
+-- manual override / fallback color (Post color still wins per-model when present)
 function M.SetColor(c)
     if typeof(c) ~= "Color3" then return end
     BOX_COLOR = c
-    for _, set in pairs(pool) do applyColor(set, c) end
 end
 
 function M.Unload()
