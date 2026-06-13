@@ -26,7 +26,7 @@ sec2:Toggle("triggerbot", true, function(v) print("triggerbot:", v) end)
 sec2:Slider("smoothness", 1, 100, 25, "%", function(v) print("smooth:", v) end)
 
 local __ESPTab = UI:Tab("ESP")
-local __ESPSec = __ESPTab:Section("ESP")
+local __ESPSec = __ESPTab:Section("Airdrop")
 
 local __ESPBase = "https://raw.githubusercontent.com/saturn-dev/SyftJailbreak/refs/heads/main/source/scripts/ESP/"
 
@@ -51,6 +51,13 @@ __ESPSec:Toggle("airdrop alert", false, function(v)
     if v then __ensureAirdropLoaded() end
     if _G.SyftAirdropESP and _G.SyftAirdropESP.SetAlertEnabled then
         _G.SyftAirdropESP.SetAlertEnabled(v)
+    end
+end)
+
+__ESPSec:ColorPicker("Airdrop ESP Color", Color3.fromHex("#F38BA8"), function(c)
+    __ensureAirdropLoaded()
+    if _G.SyftAirdropESP and _G.SyftAirdropESP.SetColor then
+        _G.SyftAirdropESP.SetColor(c)
     end
 end)
 
