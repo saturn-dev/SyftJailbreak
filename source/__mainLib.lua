@@ -864,151 +864,24 @@ function SyftLib:Close()
     self.visible=false; for _,d in ipairs(drawings) do d:Remove() end
 end
 
--- ===== ALERT / NOTIFICATION TOAST =====
-local _alerts={}
-local _ALERT_W=320; local _ALERT_PAD=14; local _ALERT_GAP=10; local _ALERT_BAR_H=4
-
-local function _alertPlaySound(url)
-    if not url or url=="" then return end
-    pcall(function()
-        local snd=Instance.new("Sound")
-        snd.SoundId=url; snd.Volume=1; snd.PlaybackSpeed=1
-        local svc=game:GetService("SoundService"); snd.Parent=svc
-        snd:Play()
-        spawn(function() wait(12); pcall(function() snd:Destroy() end) end)
-    end)
-end
-
-local function _coerceColor(c)
-    if c==nil then return nil end
-    if type(c)=="string" then
-        local ok,res=pcall(Color3.fromHex,c); if ok and res then return res end
-        return nil
-    end
-    if typeof and typeof(c)=="Color3" then return c end
-    if type(c)=="userdata" then return c end
-    if type(c)=="table" and c.R and c.G and c.B then return c end
-    return nil
-end
-
-local function _alertReflow()
-    local Cam=workspace.CurrentCamera
-    local sw=(Cam and Cam.ViewportSize and Cam.ViewportSize.X) or 1280
-    local y=_ALERT_PAD
-    for _,a in ipairs(_alerts) do
-        if not a.dead then
-            a.targetX=sw-_ALERT_W-_ALERT_PAD
-            a.targetY=y
-            y=y+a.h+_ALERT_GAP
-        end
-    end
-end
-
-local function _alertGC(a)
-    for _,d in ipairs(a.drawings) do pcall(function() d:Remove() end) end
-    for i,x in ipairs(_alerts) do if x==a then table.remove(_alerts,i); break end end
-    _alertReflow()
-end
-
-local function _easeOutCubic(t) return 1-(1-t)^3 end
-
-local function _spawnAlert(message,title,duration,barColor,audio)
-    local Cam=workspace.CurrentCamera
-    local sw=(Cam and Cam.ViewportSize and Cam.ViewportSize.X) or 1280
-
-    local hasTitle=title~=nil and title~=""
-    local boxH=hasTitle and 70 or 54
-
-    local stackY=_ALERT_PAD
-    for _,a in ipairs(_alerts) do if not a.dead then stackY=stackY+a.h+_ALERT_GAP end end
-
-    local targetX=sw-_ALERT_W-_ALERT_PAD
-    local startX=sw+30
-
-    local a={h=boxH,x=startX,y=stackY,targetX=targetX,targetY=stackY,alpha=0,drawings={},dead=false,title=title,msg=message}
-
-    local function md(t,p)
-        local o=Drawing.new(t)
-        for k,v in pairs(p) do o[k]=v end
-        table.insert(a.drawings,o); return o
-    end
-
-    local Z=1000
-    a.bg     =md("Square",{Filled=true ,Color=C.mantle ,Size=Vector2.new(_ALERT_W,boxH),Position=Vector2.new(startX,stackY),Corner=8,ZIndex=Z  ,Visible=true,Transparency=0})
-    a.brd    =md("Square",{Filled=false,Color=C.brd2   ,Size=Vector2.new(_ALERT_W,boxH),Position=Vector2.new(startX,stackY),Corner=8,Thickness=1,ZIndex=Z+1,Visible=true,Transparency=0})
-    a.bar    =md("Square",{Filled=true ,Color=barColor ,Size=Vector2.new(_ALERT_W,_ALERT_BAR_H),Position=Vector2.new(startX,stackY),Corner=8,ZIndex=Z+2,Visible=true,Transparency=0})
-    a.barFlat=md("Square",{Filled=true ,Color=barColor ,Size=Vector2.new(_ALERT_W,2)            ,Position=Vector2.new(startX,stackY+_ALERT_BAR_H-1),ZIndex=Z+2,Visible=true,Transparency=0})
-    a.stripe =md("Square",{Filled=true ,Color=barColor ,Size=Vector2.new(3,boxH-_ALERT_BAR_H-12),Position=Vector2.new(startX+10,stackY+_ALERT_BAR_H+6),Corner=2,ZIndex=Z+3,Visible=true,Transparency=0})
-
-    local txtY=stackY+_ALERT_BAR_H+8
-    if hasTitle then
-        a.titleT=md("Text",{Text=tostring(title),Size=FSS,Color=C.text    ,Font=FONTB,Position=Vector2.new(startX+22,txtY),ZIndex=Z+4,Visible=true,Transparency=0})
-        txtY=txtY+18
-    end
-    a.msgT  =md("Text",{Text=tostring(message),Size=FSX,Color=C.subtext1,Font=FONT ,Position=Vector2.new(startX+22,txtY),ZIndex=Z+4,Visible=true,Transparency=0})
-
-    local pgY=stackY+boxH-3
-    a.pgBg  =md("Square",{Filled=true,Color=C.surface0,Size=Vector2.new(_ALERT_W-20,2),Position=Vector2.new(startX+10,pgY),Corner=1,ZIndex=Z+3,Visible=true,Transparency=0})
-    a.pgFill=md("Square",{Filled=true,Color=barColor  ,Size=Vector2.new(_ALERT_W-20,2),Position=Vector2.new(startX+10,pgY),Corner=1,ZIndex=Z+4,Visible=true,Transparency=0})
-
-    table.insert(_alerts,a)
-    _alertPlaySound(audio)
-
-    spawn(function()
-        local t0=tick()
-        local IN_T=0.30; local OUT_T=0.35
-        local total=IN_T+duration+OUT_T
-        local curX=startX; local curY=stackY
-        while not a.dead do
-            local t=tick()-t0
-            local alpha, phaseProg, slideX
-            if t<IN_T then
-                phaseProg=_easeOutCubic(t/IN_T)
-                alpha=phaseProg
-                slideX=startX+(a.targetX-startX)*phaseProg
-            elseif t<IN_T+duration then
-                phaseProg=1; alpha=1; slideX=a.targetX
-            elseif t<total then
-                local p=(t-IN_T-duration)/OUT_T
-                local pe=_easeOutCubic(p)
-                phaseProg=1-pe; alpha=1-pe
-                slideX=a.targetX+(sw+30-a.targetX)*pe
-            else
-                a.dead=true; break
-            end
-            curX=lN(curX,slideX,0.5)
-            curY=lN(curY,a.targetY,0.25)
-
-            local ex=curX; local ey=curY
-            a.bg.Position=Vector2.new(ex,ey); a.bg.Transparency=alpha
-            a.brd.Position=Vector2.new(ex,ey); a.brd.Transparency=alpha
-            a.bar.Position=Vector2.new(ex,ey); a.bar.Transparency=alpha
-            a.barFlat.Position=Vector2.new(ex,ey+_ALERT_BAR_H-1); a.barFlat.Transparency=alpha
-            a.stripe.Position=Vector2.new(ex+10,ey+_ALERT_BAR_H+6); a.stripe.Transparency=alpha
-            local ty=ey+_ALERT_BAR_H+8
-            if a.titleT then a.titleT.Position=Vector2.new(ex+22,ty); a.titleT.Transparency=alpha; ty=ty+18 end
-            a.msgT.Position=Vector2.new(ex+22,ty); a.msgT.Transparency=alpha
-
-            local pgT=math.clamp((t-IN_T)/math.max(0.01,duration),0,1)
-            local pgW=math.max(0,(_ALERT_W-20)*(1-pgT))
-            a.pgBg.Position=Vector2.new(ex+10,ey+boxH-3); a.pgBg.Transparency=alpha*0.5
-            a.pgFill.Position=Vector2.new(ex+10,ey+boxH-3); a.pgFill.Size=Vector2.new(pgW,2); a.pgFill.Transparency=alpha
-            wait()
-        end
-        _alertGC(a)
-    end)
-end
-
+-- ===== ALERT / NOTIFICATION =====
+-- Matcha ships a native notify(message, title, duration) that is far more
+-- reliable than a Drawing-based toast: Drawing.Text ".Color" reads return nil
+-- (which threw "attempt to index nil with 'Color'"), and Instance.new("Sound")
+-- is unavailable in Matcha so audio playback isn't possible. Delegate to notify.
 function _G.alert(message,title,duration,barColor,audio)
+    -- legacy arg shuffle: alert(message, duration, ...) form
     if type(title)=="number" then
-        audio=barColor; barColor=duration; duration=title; title=nil
+        duration=title; title=nil
     end
     message=tostring(message or "")
     if title~=nil then title=tostring(title) end
     duration=tonumber(duration) or 3
-    local col=_coerceColor(barColor) or C.mauve
-    if type(audio)~="string" then audio=nil end
-    _spawnAlert(message,title,duration,col,audio)
+    if notify then
+        pcall(notify,message,title or "Syft",duration)
+    else
+        print("[alert]",title or "",message)
+    end
 end
 
 SyftLib.Alert=function(_,...) _G.alert(...) end

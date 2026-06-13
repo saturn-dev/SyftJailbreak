@@ -55,8 +55,8 @@ __ESPSec:Toggle("airdrop alert", false, function(v)
 end)
 
 __ESPSec:Button("test alert", function()
-    if _G.alert then
-        _G.alert("Airdrop spawned!", "Airdrop", 3, "#8B0000", "https://github.com/saturn-dev/SyftJailbreak/raw/refs/heads/main/notification.mp3")
+    if notify then
+        notify("Airdrop spawned!", "Airdrop", 3)
     end
 end)
 
