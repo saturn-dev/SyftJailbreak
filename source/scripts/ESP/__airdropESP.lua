@@ -1,175 +1,137 @@
 if _G.SyftAirdropESP and _G.SyftAirdropESP._loaded then
-    _G.SyftAirdropESP.SetEnabled(true)
     return
 end
 
-local RS = game:GetService("RunService")
-local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
 
 local M = {}
 _G.SyftAirdropESP = M
 M._loaded = true
-M.enabled = true
-M._seenIds = {}
-M._draws = {}
+M.enabled = false
+M.alertEnabled = false
+M._highlights = {}
+M._dropFolder = nil
+M._addedConn = nil
+M._removedConn = nil
+M._wsConn = nil
 
 local AUDIO_URL = "https://github.com/saturn-dev/SyftJailbreak/raw/refs/heads/main/notification.mp3"
 local BAR_COLOR = "#8B0000"
+local FILL_COLOR = Color3.fromRGB(243, 139, 168)
+local OUTLINE_COLOR = Color3.fromRGB(255, 255, 255)
 
-local function newDrawSet()
-    local box = Drawing.new("Square")
-    box.Color = Color3.fromRGB(243, 139, 168)
-    box.Thickness = 1.5
-    box.Filled = false
-    box.Visible = false
-    box.ZIndex = 10
-
-    local lbl = Drawing.new("Text")
-    lbl.Font = Drawing.Fonts.SystemBold
-    lbl.Size = 14
-    lbl.Color = Color3.fromRGB(243, 139, 168)
-    lbl.Outline = true
-    lbl.Center = true
-    lbl.Visible = false
-    lbl.ZIndex = 11
-    lbl.Text = "AIRDROP"
-
-    local dist = Drawing.new("Text")
-    dist.Font = Drawing.Fonts.System
-    dist.Size = 12
-    dist.Color = Color3.fromRGB(245, 194, 231)
-    dist.Outline = true
-    dist.Center = true
-    dist.Visible = false
-    dist.ZIndex = 11
-
-    return { box = box, lbl = lbl, dist = dist }
+local function clearOne(child)
+    local hl = M._highlights[child]
+    if hl then
+        pcall(function() hl:Destroy() end)
+        M._highlights[child] = nil
+    end
 end
 
-local function killSet(set)
-    if not set then return end
-    pcall(function() set.box:Remove() end)
-    pcall(function() set.lbl:Remove() end)
-    pcall(function() set.dist:Remove() end)
+local function clearAll()
+    for c, _ in pairs(M._highlights) do
+        local hl = M._highlights[c]
+        if hl then pcall(function() hl:Destroy() end) end
+    end
+    M._highlights = {}
 end
 
-local function hideSet(set)
-    if not set then return end
-    set.box.Visible = false; set.lbl.Visible = false; set.dist.Visible = false
+local function addHighlight(child)
+    if not child or not child.Parent then return end
+    if M._highlights[child] then return end
+    local ok, hl = pcall(function()
+        local h = Instance.new("Highlight")
+        h.Name = "SyftAirdropHL"
+        h.FillColor = FILL_COLOR
+        h.FillTransparency = 0.55
+        h.OutlineColor = OUTLINE_COLOR
+        h.OutlineTransparency = 0
+        h.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+        h.Adornee = child
+        h.Parent = child
+        return h
+    end)
+    if ok and hl then
+        M._highlights[child] = hl
+    end
 end
 
-local function findAirdrops()
-    local found = {}
-    local d = Workspace:FindFirstChild("Drop")
-    if d then table.insert(found, d) end
-    for _, child in ipairs(Workspace:GetChildren()) do
-        local nm = (child.Name or ""):lower()
-        if (nm:find("drop") or nm:find("airdrop") or nm:find("crate")) and child ~= d then
-            table.insert(found, child)
+local function refreshHighlights()
+    clearAll()
+    if not M.enabled then return end
+    if not M._dropFolder or not M._dropFolder.Parent then return end
+    for _, c in ipairs(M._dropFolder:GetChildren()) do
+        addHighlight(c)
+    end
+end
+
+local function disconnectFolder()
+    if M._addedConn then pcall(function() M._addedConn:Disconnect() end); M._addedConn = nil end
+    if M._removedConn then pcall(function() M._removedConn:Disconnect() end); M._removedConn = nil end
+end
+
+local function bindToDrop(folder)
+    disconnectFolder()
+    M._dropFolder = folder
+    if not folder then return end
+
+    M._addedConn = folder.ChildAdded:Connect(function(child)
+        if M.alertEnabled and _G.alert then
+            pcall(_G.alert, "Airdrop spawned!", "Airdrop", 3, BAR_COLOR, AUDIO_URL)
         end
-    end
-    return found
-end
-
-local function getPart(obj)
-    if not obj then return nil end
-    local cls = obj.ClassName
-    if cls == "Part" or cls == "MeshPart" or cls == "UnionOperation" or cls == "BasePart" then
-        return obj
-    end
-    local p = obj:FindFirstChildWhichIsA("BasePart")
-    if p then return p end
-    return obj:FindFirstChild("Hitbox") or obj:FindFirstChild("PrimaryPart")
-end
-
-local function getLocalPos()
-    local lp = Players.LocalPlayer
-    if not lp then return nil end
-    local char = lp.Character
-    if not char then return nil end
-    local hrp = char:FindFirstChild("HumanoidRootPart")
-    if not hrp then return nil end
-    return hrp.Position
-end
-
--- Scan loop: detect new airdrops + fire alert
-spawn(function()
-    while M._loaded do
-        wait(0.5)
         if M.enabled then
-            local list = findAirdrops()
-            local nowIds = {}
-            for _, a in ipairs(list) do
-                local id = tostring(a)
-                nowIds[id] = a
-                if not M._seenIds[id] then
-                    M._seenIds[id] = true
-                    M._draws[id] = newDrawSet()
-                    if _G.alert then
-                        _G.alert("Airdrop spawned!", "Airdrop", 3, BAR_COLOR, AUDIO_URL)
-                    end
-                end
-            end
-            for id, _ in pairs(M._seenIds) do
-                if not nowIds[id] then
-                    M._seenIds[id] = nil
-                    killSet(M._draws[id]); M._draws[id] = nil
-                end
-            end
+            wait(0.1)
+            addHighlight(child)
         end
+    end)
+
+    M._removedConn = folder.ChildRemoved:Connect(function(child)
+        clearOne(child)
+    end)
+
+    if M.enabled then refreshHighlights() end
+end
+
+if M._wsConn then pcall(function() M._wsConn:Disconnect() end) end
+M._wsConn = Workspace.ChildAdded:Connect(function(child)
+    if child.Name == "Drop" and (not M._dropFolder or not M._dropFolder.Parent) then
+        bindToDrop(child)
     end
 end)
 
--- Render loop: draw ESP each frame
-RS.RenderStepped:Connect(function()
-    if not M.enabled then
-        for _, set in pairs(M._draws) do hideSet(set) end
-        return
-    end
-    local localPos = getLocalPos()
-    for _, child in ipairs(Workspace:GetChildren()) do
-        local id = tostring(child)
-        local set = M._draws[id]
-        if set then
-            local part = getPart(child)
-            if part and part.Position then
-                local ok, screenPos, onScreen = pcall(WorldToScreen, part.Position)
-                if ok and onScreen and screenPos then
-                    local sz = 90
-                    set.box.Size = Vector2.new(sz, sz)
-                    set.box.Position = Vector2.new(screenPos.X - sz / 2, screenPos.Y - sz / 2)
-                    set.box.Visible = true
-                    set.lbl.Position = Vector2.new(screenPos.X, screenPos.Y - sz / 2 - 18)
-                    set.lbl.Visible = true
-                    if localPos then
-                        local d = (localPos - part.Position).Magnitude
-                        set.dist.Text = string.format("[%d studs]", math.floor(d))
-                        set.dist.Position = Vector2.new(screenPos.X, screenPos.Y + sz / 2 + 4)
-                        set.dist.Visible = true
-                    else
-                        set.dist.Visible = false
-                    end
-                else
-                    hideSet(set)
-                end
-            else
-                hideSet(set)
-            end
+spawn(function()
+    while M._loaded do
+        local cur = Workspace:FindFirstChild("Drop")
+        if cur and cur ~= M._dropFolder then
+            bindToDrop(cur)
+        elseif not cur and M._dropFolder then
+            disconnectFolder()
+            M._dropFolder = nil
+            clearAll()
         end
+        wait(1)
     end
 end)
 
 function M.SetEnabled(v)
     M.enabled = v == true
-    if not M.enabled then
-        for _, set in pairs(M._draws) do hideSet(set) end
+    if M.enabled then
+        refreshHighlights()
+    else
+        clearAll()
     end
+end
+
+function M.SetAlertEnabled(v)
+    M.alertEnabled = v == true
 end
 
 function M.Unload()
     M.enabled = false
+    M.alertEnabled = false
     M._loaded = false
-    for id, set in pairs(M._draws) do killSet(set); M._draws[id] = nil end
-    M._seenIds = {}
+    clearAll()
+    disconnectFolder()
+    if M._wsConn then pcall(function() M._wsConn:Disconnect() end); M._wsConn = nil end
+    M._dropFolder = nil
 end
