@@ -404,10 +404,9 @@ function SyftLib:Open()
                             local bW=colW2-PAD*2
                             local bBg=mk("Square",{Filled=true,Color=lC(C.surface0,C.surface2,it._hc),Size=Vector2.new(bW,BH),Position=Vector2.new(cx+PAD,iy),Corner=6,ZIndex=13,Visible=true})
                             local bBrd=mk("Square",{Filled=false,Color=lC(C.brd,C.mauve,it._hc),Size=Vector2.new(bW,BH),Position=Vector2.new(cx+PAD,iy),Corner=6,Thickness=1,ZIndex=14,Visible=true})
-                            local lw=tw(it.label,FSS)
-                            local btx=cx+PAD+math.floor((bW-lw)/2)+20
-                            local bty=iy+math.floor((BH/2)-7)
-                            local bTxt=mk("Text",{Text=it.label,Size=FSS,Color=lC(C.subtext1,C.text,it._hc),Font=FONT,Position=Vector2.new(btx,bty),ZIndex=15,Visible=true})
+                            local btx=cx+PAD+math.floor(bW/2)
+                            local bty=iy+math.floor(BH/2)
+                            local bTxt=mk("Text",{Text=it.label,Size=FSS,Color=lC(C.subtext1,C.text,it._hc),Font=FONT,Center=true,Position=Vector2.new(btx,bty),ZIndex=15,Visible=true})
                             if inV then
                                 sloop(function(h)
                                     local d=ismouse1pressed()
