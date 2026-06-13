@@ -20,16 +20,15 @@ M._loaded = true
 M.enabled = false
 M.alertEnabled = false
 
-local DEFAULT_COLOR = Color3.fromRGB(243, 139, 168)
+local BOX_COLOR  = Color3.fromRGB(243, 139, 168)
 local NAME_COLOR = Color3.fromRGB(255, 255, 255)
 local DIST_COLOR = Color3.fromRGB(245, 194, 231)
 
 local FONT = Drawing.Fonts.System
 pcall(function() FONT = Drawing.Fonts.SystemBold end)
 
--- pool[model] = { box, name, dist, part, color }
--- part  = cached representative BasePart (so we don't search every frame)
--- color = cached Post .Color (resolved in the slow scan loop)
+-- pool[model] = { box, name, dist, part }
+-- part = cached anchor BasePart so we don't search the model every frame
 local pool = {}
 local seen = {}   -- [model] = true  (alert de-dup, one per airdrop)
 
@@ -38,7 +37,7 @@ local function makeSet()
     local box = Drawing_new("Square")
     box.Thickness = 2
     box.Filled = false
-    box.Color = DEFAULT_COLOR
+    box.Color = BOX_COLOR
     box.Visible = false
     box.ZIndex = 10
 
@@ -61,7 +60,7 @@ local function makeSet()
     dist.Visible = false
     dist.ZIndex = 11
 
-    return { box = box, name = name, dist = dist, part = nil, color = nil }
+    return { box = box, name = name, dist = dist, part = nil }
 end
 
 local function hideSet(set)
@@ -92,33 +91,12 @@ local function isModel(obj)
     return ok and r == true
 end
 
--- representative part to anchor the box on (PrimaryPart > a Post > any BasePart)
+-- one anchor part for the box (PrimaryPart first, else any BasePart)
 local function pickPart(model)
     local ok, pp = pcall(function() return model.PrimaryPart end)
     if ok and pp then return pp end
-    local post = model:FindFirstChild("Post", true)
-    if post then
-        local okp, isp = pcall(function() return post:IsA("BasePart") end)
-        if okp and isp == true then return post end
-    end
     local bp = model:FindFirstChildWhichIsA("BasePart")
     if bp then return bp end
-    return nil
-end
-
--- read .Color off a "Post" part (nil-safe — never index a nil part)
-local function pickPostColor(model)
-    local posts = {}
-    for _, d in ipairs(model:GetDescendants()) do
-        if d and d.Name == "Post" then
-            local ok, isp = pcall(function() return d:IsA("BasePart") end)
-            if ok and isp == true then posts[#posts + 1] = d end
-        end
-    end
-    local post = posts[1]
-    if not post then return nil end
-    local okc, col = pcall(function() return post.Color end)
-    if okc and col and typeof(col) == "Color3" then return col end
     return nil
 end
 
@@ -134,25 +112,16 @@ local function getLocalPos()
     return nil
 end
 
--- ---------- collect airdrop MODELS only ----------
+-- ---------- collect ONLY top-level airdrop models named "Drop" ----------
+-- (does NOT descend into the model, so child models like "Walls" are ignored)
 local function collectDrops(out)
-    local container = Workspace:FindFirstChild("Drop")
-    if container then
-        local anyModel = false
-        for _, c in ipairs(container:GetChildren()) do
-            if isModel(c) then out[c] = true; anyModel = true end
-        end
-        -- the container itself is the airdrop model if it has no model children
-        if not anyModel and isModel(container) then out[container] = true end
-    end
-    -- support more than one airdrop spawned directly in Workspace as "Drop"
     for _, c in ipairs(Workspace:GetChildren()) do
-        if c ~= container and c.Name == "Drop" and isModel(c) then out[c] = true end
+        if c.Name == "Drop" and isModel(c) then out[c] = true end
     end
     return out
 end
 
--- ---------- slow scan: membership, alerts, cache part + color ----------
+-- ---------- slow scan: membership, alerts, cache anchor part ----------
 local function scan()
     local current = {}
     collectDrops(current)
@@ -166,11 +135,7 @@ local function scan()
         end
         local set = pool[m]
         if not set then set = makeSet(); pool[m] = set end
-        -- refresh cached anchor part + post color (cheap because only 2Hz)
         if not set.part or not set.part.Parent then set.part = pickPart(m) end
-        set.color = pickPostColor(m) or DEFAULT_COLOR
-        set.box.Color = set.color
-        set.dist.Color = set.color
     end
 
     for m, _ in pairs(seen) do
@@ -195,7 +160,7 @@ task.spawn(function()
     end
 end)
 
--- ---------- render: cheap per-frame update (smooth, no flicker) ----------
+-- ---------- render: cheap per-frame update (smooth, integer-rounded) ----------
 local renderConn
 renderConn = RS.RenderStepped:Connect(function()
     if not M._loaded or not M.enabled then
@@ -226,7 +191,6 @@ renderConn = RS.RenderStepped:Connect(function()
                     set.box.Size = Vector2_new(sz, sz)
                     set.box.Position = Vector2_new(sx - half, sy - half)
                     set.box.Visible = true
-                    set.name.Text = (m.Name and m.Name ~= "") and m.Name or "AIRDROP"
                     set.name.Position = Vector2_new(sx, sy - half - 16)
                     set.name.Visible = true
                 else
@@ -236,7 +200,6 @@ renderConn = RS.RenderStepped:Connect(function()
                 hideSet(set)
             end
         else
-            -- anchor part gone; drop it from the cache (scan re-resolves)
             set.part = nil
             hideSet(set)
         end

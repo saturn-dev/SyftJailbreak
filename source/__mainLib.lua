@@ -775,7 +775,7 @@ function SyftLib:Open()
             local wd=false; local lastQ=""
             while true do
                 wait(0.016)
-                if lib.visible then
+                if lib.visible and srTxt and srBg and srBrd and srIcon and srIconL then
                     local sx2=lib.px+tw(lib.title,FS)+26
                     srBg.Position=Vector2.new(sx2,lib.py+8); srBrd.Position=Vector2.new(sx2,lib.py+8)
                     srIcon.Position=Vector2.new(sx2+10,lib.py+19)
