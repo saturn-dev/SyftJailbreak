@@ -34,7 +34,7 @@ local FONT = Drawing.Fonts.System
 pcall(function() FONT = Drawing.Fonts.SystemBold end)
 
 -- Keyed by a STABLE string id (instance wrappers aren't stable across calls).
-local pool = {}   -- [id] = { fill, box, nameBg, name, dist, model, part, color, miss }
+local pool = {}   -- [id] = { fill, box, nameBg, name, dist, model, part, color, miss, colorSet }
 local seen = {}   -- [id] = true  (alert de-dup, exactly one per airdrop)
 
 -- ---------- stable identity ----------
@@ -88,7 +88,7 @@ local function makeSet()
     dist.ZIndex = Z_TEXT
 
     return { fill = fill, box = box, nameBg = nameBg, name = name, dist = dist,
-             model = nil, part = nil, color = BOX_COLOR, miss = 0 }
+             model = nil, part = nil, color = BOX_COLOR, miss = 0, colorSet = false }
 end
 
 local function hideSet(set)
@@ -147,8 +147,8 @@ local function isAirdrop(c)
     return true
 end
 
--- ONE descendant pass that returns both the anchor part and the Post color.
-local function resolveModel(model)
+-- ONE descendant pass that returns the anchor part and, if needed, the Post color.
+local function resolveModel(model, needColor)
     local anchor, fallback, postColor
     local okP, pp = pcall(function() return model.PrimaryPart end)
     if okP and pp then anchor = pp end
@@ -162,7 +162,7 @@ local function resolveModel(model)
                 local nm = okn and dn or ""
                 if not fallback then fallback = d end
                 if nm == "Walls" and not anchor then anchor = d end
-                if nm == "Post" and not postColor then
+                if needColor and nm == "Post" and not postColor then
                     local okc, col = pcall(function() return d.Color end)
                     if okc and col and typeof(col) == "Color3" then postColor = col end
                 end
@@ -213,9 +213,15 @@ local function scan()
         local set = pool[id]
         if not set then set = makeSet(); pool[id] = set end
         set.model = m
-        local part, postColor = resolveModel(m)
+        local needColor = not set.colorSet
+        local part, postColor = resolveModel(m, needColor)
         if not partValid(set.part) then set.part = part end
-        applyColor(set, postColor or BOX_COLOR)
+        if postColor then
+            applyColor(set, postColor)
+            set.colorSet = true
+        elseif needColor then
+            applyColor(set, BOX_COLOR)
+        end
     end
 
     for id, _ in pairs(seen) do
@@ -240,11 +246,20 @@ end)
 
 -- ---------- render: cheap per-frame, integer-rounded, anti-flicker grace ----------
 local renderConn
+local lastRender = 0
 renderConn = RS.RenderStepped:Connect(function()
     if not M._loaded or not M.enabled then
         hideAll()
         return
     end
+    -- When the Drawing GUI is open, throttle ESP updates a bit to avoid fighting
+    -- the menu's own drawing updates. It still feels smooth but costs less.
+    local now = os.clock()
+    local guiOpen = _G.SyftLibUI and _G.SyftLibUI.visible == true
+    local minStep = guiOpen and 0.05 or 0.016
+    if now - lastRender < minStep then return end
+    lastRender = now
+
     local lpos = getLocalPos()
     for _, set in pairs(pool) do
         local part = set.part

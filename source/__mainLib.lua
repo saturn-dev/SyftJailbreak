@@ -73,6 +73,7 @@ function SyftLib.new(title)
     self.activeTab=1; self.px=200; self.py=100; self.sw=660; self.sh=500
     self.visible=true; self.doSearch=false; self.query=""
     self.sfocus=false; self.kdown={}; self.toggleKey=0x2D; self.scrollY={}
+    _G.SyftLibUI=self
     return self
 end
 function SyftLib:Search() self.doSearch=true end
@@ -177,7 +178,7 @@ function SyftLib:Open()
             if srBrd then srBrd.Position=Vector2.new(sx2,lib.py+8); srBrd.Color=C.brd end
             srIcon.Position=Vector2.new(sx2+10,lib.py+19); srIcon.Color=C.overlay0
             srIconL.From=Vector2.new(sx2+13,lib.py+22); srIconL.To=Vector2.new(sx2+16,lib.py+25); srIconL.Color=C.overlay0
-            srTxt.Position=Vector2.new(sx2+20,lib.py+12); srTxt.Color=C.overlay0
+            if srTxt then srTxt.Position=Vector2.new(sx2+20,lib.py+12) end
         end
         for i,td in ipairs(tabDs) do
             td.td.Position=Vector2.new(lib.px+TITLEW+td.relX,lib.py+11)
@@ -692,7 +693,9 @@ function SyftLib:Open()
                 local d=ismouse1pressed()
                 local mx=Mouse.X; local my=Mouse.Y
                 if d and not wd then
-                    if mx>=lib.px and mx<lib.px+TITLEW and my>=lib.py and my<=lib.py+TB then
+                    local searchX=lib.doSearch and (lib.px+tw(lib.title,FS)+26) or -9999
+                    local onSearch=lib.doSearch and mx>=searchX and mx<=searchX+srW and my>=lib.py+8 and my<=lib.py+30
+                    if (not onSearch) and mx>=lib.px and mx<lib.px+TITLEW and my>=lib.py and my<=lib.py+TB then
                         drag=true; lib.dragging=true
                         startMX=mx; startMY=my; startPX=lib.px; startPY=lib.py
                         lastPX=lib.px; lastPY=lib.py
@@ -753,7 +756,6 @@ function SyftLib:Open()
                         end
                     end
                     srTxt.Text=lib.query=="" and "search..." or lib.query
-                    srTxt.Color=lib.query=="" and C.overlay0 or C.text
                     if lib.query~=lastQ then lastQ=lib.query; buildSecs() end
                     wd=d
                 else wd=false end

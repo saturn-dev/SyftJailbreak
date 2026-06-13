@@ -1,4 +1,4 @@
-loadstring(game:HttpGet("https://raw.githubusercontent.com/saturn-dev/syft-library/refs/heads/main/main/__syft_LuaU.lua"))()
+loadstring(game:HttpGet("https://raw.githubusercontent.com/saturn-dev/SyftJailbreak/refs/heads/main/source/__mainLib.lua"))()
 repeat wait() until SyftLib
 
 local UI = SyftLib.new("Syft Jailbreak")
@@ -63,7 +63,7 @@ end)
 
 __ESPSec:Button("test alert", function()
     if notify then
-        notify("Airdrop spawned!", "Airdrop", 3)
+        notify("Airdrop spawned!", "Airdrop", 3)    
     end
 end)
 
