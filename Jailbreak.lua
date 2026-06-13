@@ -28,6 +28,31 @@ sec2:Slider("smoothness", 1, 100, 25, "%", function(v) print("smooth:", v) end)
 local __ESPTab = UI:Tab("ESP")
 local __ESPSec = __ESPTab:Section("ESP")
 
+local __ESPBase = "https://raw.githubusercontent.com/saturn-dev/SyftJailbreak/refs/heads/main/source/scripts/ESP/"
+
+__ESPSec:Toggle("airdrop ESP", false, function(v)
+    if v then
+        if not _G.SyftAirdropESP or not _G.SyftAirdropESP._loaded then
+            local ok, src = pcall(game.HttpGet, game, __ESPBase .. "__airdropESP.lua")
+            if ok and type(src) == "string" and #src > 50 then
+                local fn = loadstring(src)
+                if fn then pcall(fn) end
+            end
+        end
+        if _G.SyftAirdropESP and _G.SyftAirdropESP.SetEnabled then
+            _G.SyftAirdropESP.SetEnabled(true)
+        end
+    else
+        if _G.SyftAirdropESP and _G.SyftAirdropESP.SetEnabled then
+            _G.SyftAirdropESP.SetEnabled(false)
+        end
+    end
+end)
+
+__ESPSec:Button("test alert", function()
+    alert("Airdrop spawned!", "Airdrop", 3, "#8B0000", "https://github.com/saturn-dev/SyftJailbreak/raw/refs/heads/main/notification.mp3")
+end)
+
 
 local stab = UI:Tab("Settings")
 local ssec = stab:Section("appearance")
